@@ -168,7 +168,8 @@ describe('durable invitation acceptance', () => {
     await service.acceptInvitation(data);
     await writeFile(config.adminUsersFilePath, '[]');
     vi.mocked(config.writeFile).mockClear();
-    await new InvitationService().recoverPendingAcceptances();
+    await expect(new InvitationService().recoverPendingAcceptances())
+      .rejects.toThrow('Invitation history exists but user authority is empty');
     expect(await users()).toEqual([]);
     expect(config.writeFile).not.toHaveBeenCalled();
     expect((await service.acceptInvitation(data)).success).toBe(false);
@@ -218,7 +219,12 @@ describe('durable invitation acceptance', () => {
 
   it('reserves applied-receipt handles even if an external cleanup deletes the user', async () => {
     await service.acceptInvitation(data);
-    await writeFile(config.adminUsersFilePath, '[]');
+    // Retain a separate tombstone so this isolates the missing user's handle
+    // reservation rather than the empty-established-authority barrier.
+    await writeFile(config.adminUsersFilePath, JSON.stringify([{
+      id: 'retained-other', handle: 'retained-other', isActive: false,
+      removedAt: new Date().toISOString(),
+    }]));
     await writeFile(config.invitesFilePath, JSON.stringify([invite({ id: 'invitation-2', token: 'another-token' })]));
     expect(await service.acceptInvitation({ ...data, token: 'another-token' }))
       .toEqual({ success: false, error: 'Handle already taken' });
@@ -275,6 +281,60 @@ describe('durable invitation acceptance', () => {
     await unlink(config.adminUsersFilePath);
     await expect(service.recoverPendingAcceptances()).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(users()).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('applied receipts with parseable empty users block a fresh-bootstrap decision without writes', async () => {
+    await service.acceptInvitation(data);
+    const applied = await journal();
+    await writeFile(config.adminUsersFilePath, '[]');
+    vi.mocked(config.writeFile).mockClear();
+    const bootstrapDecision = vi.fn(async () => (await users()).length === 0);
+    const protectedDecision = async () => {
+      await new InvitationService().recoverPendingAcceptances();
+      return bootstrapDecision();
+    };
+    await expect(protectedDecision()).rejects.toThrow('Invitation history exists but user authority is empty');
+    expect(bootstrapDecision).not.toHaveBeenCalled();
+    expect(config.writeFile).not.toHaveBeenCalled();
+    expect(await users()).toEqual([]);
+    expect(await journal()).toEqual(applied);
+  });
+
+  it('retained tombstones satisfy established user authority without restoring their account state', async () => {
+    await service.acceptInvitation(data);
+    const [current] = await users();
+    const tombstone = {
+      id: current.id, handle: current.handle, isActive: false,
+      invitationAcceptanceId: current.invitationAcceptanceId,
+      removedAt: new Date().toISOString(), removedBy: 'operator',
+    };
+    await writeFile(config.adminUsersFilePath, JSON.stringify([tombstone]));
+    vi.mocked(config.writeFile).mockClear();
+    await expect(service.recoverPendingAcceptances()).resolves.toBeUndefined();
+    expect(await users()).toEqual([tombstone]);
+    expect(config.writeFile).not.toHaveBeenCalled();
+  });
+
+  it('mixed applied and committed history refuses empty authority before projecting the pending account', async () => {
+    await service.acceptInvitation(data);
+    await writeFile(config.invitesFilePath, JSON.stringify([
+      ...(await invitations()), invite({ id: 'invitation-2', token: 'another-token' }),
+    ]));
+    failProjection = 'user';
+    expect((await service.acceptInvitation({
+      ...data, token: 'another-token', handle: 'another-author',
+    })).success).toBe(false);
+    const committed = await journal();
+    expect(committed.operations.map((operation: { state: string }) => operation.state))
+      .toEqual(['applied', 'committed']);
+    await writeFile(config.adminUsersFilePath, '[]');
+    failProjection = undefined;
+    vi.mocked(config.writeFile).mockClear();
+    await expect(new InvitationService().recoverPendingAcceptances())
+      .rejects.toThrow('Invitation history exists but user authority is empty');
+    expect(config.writeFile).not.toHaveBeenCalled();
+    expect(await users()).toEqual([]);
+    expect(await journal()).toEqual(committed);
   });
 
   it.each([{}, { invites: 'not-an-array' }, [invite(), invite()]])(

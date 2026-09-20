@@ -171,13 +171,24 @@ export class DurableInvitationAcceptance {
     const journal = await this.readJournal();
     // Even an applied-only history proves this is not a fresh installation.
     // Losing user authority must fail the protected gate, not enable bootstrap.
-    if (journal.operations.length > 0) await this.readUsers();
+    if (journal.operations.length > 0) {
+      const users = await this.readUsers();
+      if (users.length === 0 && journal.operations.some((operation) => operation.state === 'applied')) {
+        throw new Error('Invitation history exists but user authority is empty');
+      }
+    }
     for (const operation of journal.operations) {
       if (operation.state === 'applied') continue;
       await this.apply(operation);
       operation.state = 'applied';
       delete operation.user;
       await this.writeJournal(journal);
+    }
+    // Check after replay so a first committed acceptance can still finish from
+    // an explicitly empty projection. Applied history is never a new install,
+    // and its missing users must not be resurrected from old security state.
+    if (journal.operations.length > 0 && (await this.readUsers()).length === 0) {
+      throw new Error('Invitation history exists but user authority is empty');
     }
   }
 

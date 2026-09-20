@@ -42,6 +42,11 @@ state. `writeFile` must atomically replace its target, sync its contents, and sy
 the containing directory. Both projections and the private operations file must
 live on persistent storage. The user authority must already exist: an invitation
 requires an existing creator, and a missing user file is not an empty install.
+Already-applied history requires a non-empty user projection before recovery,
+including when other committed operations remain pending. Pure committed history
+may first finish its initial user projection; any acceptance history then requires
+a non-empty result. Retained tombstones satisfy this invariant; applied receipts
+never recreate accounts to repair an empty projection or permit fresh bootstrap.
 
 ### Commit, recovery and receipts
 
