@@ -79,7 +79,18 @@ export interface AcceptResult {
   userId?: string;
   needsOnboarding?: boolean;
   tempTotpSecret?: string;
+  receipt?: InvitationAcceptanceReceipt;
+  /** A receipt retry is NOT a login: user and tempTotpSecret are omitted. */
+  replayed?: boolean;
   error?: string;
+}
+
+export interface InvitationAcceptanceReceipt {
+  operationId: string;
+  invitationId: string;
+  userId: string;
+  handle: string;
+  committedAt: string;
 }
 
 

@@ -10,6 +10,7 @@ import crypto from 'crypto';
 import { getConfig } from './config.js';
 import { InvitationError } from './errors.js';
 import { defaultCanCreateInviteForRole } from './roles.js';
+import { DurableInvitationAcceptance } from './durable-acceptance.js';
 import type {
   AdminInvite,
   AdminUser,
@@ -54,6 +55,24 @@ export class InvitationService {
   private invitations: Map<string, AdminInvite> = new Map();
   private initialized = false;
 
+  /** Run before protected auth reads as well as every auth mutation. */
+  async recoverPendingAcceptances(): Promise<void> {
+    const config = getConfig();
+    if (config.durableAcceptance) await new DurableInvitationAcceptance(config).recover();
+  }
+
+  private async withDurableState<T>(operation: () => Promise<T>): Promise<T> {
+    const config = getConfig();
+    if (!config.durableAcceptance) return operation();
+    return new DurableInvitationAcceptance(config).withReadyState(async () => {
+      // All file readers/writers participate in the same consumer-supplied gate.
+      // Durable receipts retain spent/expired tokens; do not run legacy cleanup.
+      await this.loadInvitations();
+      this.initialized = true;
+      return operation();
+    });
+  }
+
   
   
   
@@ -70,6 +89,11 @@ export class InvitationService {
   
   private async loadInvitations(): Promise<void> {
     const config = getConfig();
+    if (config.durableAcceptance) {
+      const invitations = await new DurableInvitationAcceptance(config).readInvitations();
+      this.invitations = new Map(invitations.map((invite) => [invite.token, invite]));
+      return;
+    }
     try {
       const data = await config.readFile(config.invitesFilePath);
       const parsed: unknown = JSON.parse(data);
@@ -123,6 +147,10 @@ export class InvitationService {
 
 
   async createInvitation(options: InvitationCreateOptions): Promise<InvitationResult> {
+    return this.withDurableState(() => this.createInvitationUnlocked(options));
+  }
+
+  private async createInvitationUnlocked(options: InvitationCreateOptions): Promise<InvitationResult> {
     await this.ensureInitialized();
     const config = getConfig();
 
@@ -213,14 +241,15 @@ export class InvitationService {
 
 
   async getInvitation(token: string): Promise<AdminInvite | null> {
-    await this.ensureInitialized();
-
-    return this.getPendingInvitation(token);
+    return this.withDurableState(async () => {
+      await this.ensureInitialized();
+      return this.getPendingInvitation(token);
+    });
   }
 
   private getPendingInvitation(token: string): AdminInvite | null {
     const invitation = this.invitations.get(token);
-    if (!invitation) return null;
+    if (!invitation || !invitation.isActive) return null;
 
     
     if (new Date(invitation.expiresAt) < new Date()) {
@@ -241,6 +270,15 @@ export class InvitationService {
 
   async acceptInvitation(data: InvitationAcceptData): Promise<AcceptResult> {
     const config = getConfig();
+    if (config.durableAcceptance) {
+      try {
+        return await new DurableInvitationAcceptance(config).accept(data);
+      } catch {
+        // Do not expose token/password/journal contents in an error sink.
+        console.error('Failed to accept invitation; durable recovery is required before auth decisions');
+        return { success: false, error: 'Failed to accept invitation' };
+      }
+    }
     const lockKey = `${config.invitesFilePath}\0${data.token}`;
 
     return withAcceptanceLock(lockKey, async () => {
@@ -347,16 +385,21 @@ export class InvitationService {
 
   
   async listPendingInvitations(): Promise<AdminInvite[]> {
-    await this.ensureInitialized();
-
-    const now = new Date();
-    return Array.from(this.invitations.values()).filter(
-      (invite) => new Date(invite.expiresAt) > now && !invite.usedAt,
-    );
+    return this.withDurableState(async () => {
+      await this.ensureInitialized();
+      const now = new Date();
+      return Array.from(this.invitations.values()).filter(
+        (invite) => invite.isActive && new Date(invite.expiresAt) > now && !invite.usedAt,
+      );
+    });
   }
 
   
   async revokeInvitation(token: string, revokedBy: string): Promise<boolean> {
+    return this.withDurableState(() => this.revokeInvitationUnlocked(token, revokedBy));
+  }
+
+  private async revokeInvitationUnlocked(token: string, revokedBy: string): Promise<boolean> {
     await this.ensureInitialized();
     const config = getConfig();
 
@@ -377,6 +420,10 @@ export class InvitationService {
 
   
   async extendInvitation(token: string, additionalHours: number): Promise<boolean> {
+    return this.withDurableState(() => this.extendInvitationUnlocked(token, additionalHours));
+  }
+
+  private async extendInvitationUnlocked(token: string, additionalHours: number): Promise<boolean> {
     await this.ensureInitialized();
 
     const invitation = this.invitations.get(token);
@@ -392,6 +439,10 @@ export class InvitationService {
 
   
   async getStatistics(): Promise<InvitationStatistics> {
+    return this.withDurableState(() => this.getStatisticsUnlocked());
+  }
+
+  private async getStatisticsUnlocked(): Promise<InvitationStatistics> {
     await this.ensureInitialized();
 
     const now = new Date();

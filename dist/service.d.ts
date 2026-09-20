@@ -2,18 +2,25 @@ import type { AdminInvite, InvitationCreateOptions, InvitationAcceptData, Invita
 export declare class InvitationService {
     private invitations;
     private initialized;
+    /** Run before protected auth reads as well as every auth mutation. */
+    recoverPendingAcceptances(): Promise<void>;
+    private withDurableState;
     private ensureInitialized;
     private loadInvitations;
     private saveInvitations;
     private cleanupExpired;
     createInvitation(options: InvitationCreateOptions): Promise<InvitationResult>;
+    private createInvitationUnlocked;
     getInvitation(token: string): Promise<AdminInvite | null>;
     private getPendingInvitation;
     acceptInvitation(data: InvitationAcceptData): Promise<AcceptResult>;
     listPendingInvitations(): Promise<AdminInvite[]>;
     revokeInvitation(token: string, revokedBy: string): Promise<boolean>;
+    private revokeInvitationUnlocked;
     extendInvitation(token: string, additionalHours: number): Promise<boolean>;
+    private extendInvitationUnlocked;
     getStatistics(): Promise<InvitationStatistics>;
+    private getStatisticsUnlocked;
     private canCreateInviteForRole;
     private loadAdminUsers;
 }
