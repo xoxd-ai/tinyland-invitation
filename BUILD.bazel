@@ -53,13 +53,15 @@ vitest_bin.vitest_test(
     name = "test",
     data = [
         ":node_modules",
+        ".github/lanes.json",
         "BUILD.bazel",
         "MODULE.bazel",
+        "docs/gf-v4-qualification.candidate.yml",
         "package.json",
         "tsconfig.json",
         ":node_modules/vitest",
         "vitest.config.ts",
-    ] + glob(["src/**/*.ts"]) + glob(["tests/**/*.test.ts", "tests/**/*.ts"]),
+    ] + glob([".github/workflows/*.yml", ".github/workflows/*.yaml"]) + glob(["src/**/*.ts"]) + glob(["tests/**/*.test.ts", "tests/**/*.ts"]),
     args = [
         "run",
         "--reporter=verbose",
