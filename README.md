@@ -4,6 +4,11 @@
 hooks. The consumer resolves the current creator and supplies its role policy;
 an old invitation or a caller-supplied creator role is not current authority.
 
+The unreleased [0.2.6 launch candidate](docs/launch-candidate-0.2.6.md) preserves
+the 0.2.5 API for the existing-admin, single-writer mothership. Its source/version
+preparation does not release the held invitation 0.3/auth 0.8 breaking train or
+authorize publication, workflow activation or deployment.
+
 ## Durable file-native acceptance
 
 Opt in with `InvitationConfig.durableAcceptance`:
