@@ -28,6 +28,5 @@ jobs:
       bazel_targets: "//:pkg //:test"
       package_dir: ./bazel-bin/pkg
       npm_access: public
-      github_package_name: "@tummycrypt/tinyland-invitation"
       dry_run: true
     secrets: inherit
