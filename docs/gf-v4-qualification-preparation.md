@@ -10,7 +10,7 @@ TIN-2611. Keep the caller under `docs/`, not `.github/workflows/`.
 
 | Action | Existing Bazel command and labels |
 | --- | --- |
-| `unit-tests` | `test //:test` |
+| `unit-tests` | `test //:test //:package_artifact_test` |
 | `package-check` | `build //:pkg` |
 
 `//:pkg` already depends on the existing TypeScript compilation target
@@ -21,48 +21,67 @@ merely building a test target. Both actions request abstract
 The plan contains no endpoints, credentials, tenant/repository identity,
 publication or deployment authority.
 
-The inert caller pins the released ci-templates v5.1.0 commit
-`32e39ced0008edf4564ebeb173a5e8fbf069e28f`, not template main or a proposed
+The inert caller pins the released ci-templates v5.1.1 commit
+`ae836d8400d5784d74af4fecc020f225d1c2d08e`, not template main or a proposed
 publisher interface. It admits only main pushes and same-repository PRs targeting
 main, with `contents: read` and `id-token: write`; no manual dispatch, secrets,
 tag trigger or package-write permission is added. The released caller selects
-the exact push/PR head revision, not a synthetic PR merge revision.
+the exact push/PR head revision, not a synthetic PR merge revision. Relative to
+the prior v5.1.0 caller, this release passes the compiled client its isolated
+`--result-dir`. Both actions remain status-only: that directory is not an export,
+publication or admission receipt. The installed binding still requires independent
+verification before any activation.
 
 Status-only means terminal status, not exported package files. Building
 `//:pkg` neither exports a qualified artifact nor runs `publint` or publishes
-it. Existing `ci.yml` and `publish.yml`, their `21e0093` legacy template pin,
-release events, package checks and publication permissions stay unchanged.
-Their results are not GF v4 evidence or a fallback for a refused v4 action.
+it. The graph-owned `//:package_artifact_test` supplies its actual assembled
+directory to the existing locked `publint` 0.3.18 API with `pack: false` and
+`strict: false`: it never repacks, imports target runtime or uses source `dist`
+as a fallback. It logs findings and fails on errors, preserving the retired
+CLI gate's severity. It also checks source/artifact manifest parity and nonempty
+declared ESM/type files. This packaging check does not typecheck declaration
+closure or replace an isolated external consumer proof.
+
+Under corrected TIN-89/TIN-1629 authority, the legacy `ci.yml`/`publish.yml`
+provider paths and package publishing configuration are retired, not retained as
+a fallback. The candidate intentionally has no active workflow pending the
+released/admitted GF binding. Missing qualification is not a successful check.
 At preparation commit `8c1a394d5eb13209ef3e4b0a2b3d68557bf15a85`, package/module/
 Bazel versions, dependencies and generated `dist` were unchanged. The subsequent
-[0.2.6 source candidate](launch-candidate-0.2.6.md) changes release metadata only;
+[0.2.6 source candidate](launch-candidate-0.2.6.md) adds release metadata,
+package-scoped Bazel composition and BCR-only CI retirement;
 its changed inputs require fresh lock replay and package qualification before
 release, not reuse of this preparation receipt as execution proof.
 
 ## Local diagnostics and source lock
 
 Focused contracts in `tests/gf-v4-qualification-contract.test.ts` verify the
-closed plan, existing labels, inert caller and preserved legacy gates. Their
+closed plan, existing labels, inert caller, required graph-registered runtime and
+metadata tests, and absence of provider publication configuration. Their
 inputs include the actual workflow-file glob so an added active workflow cannot
 be invisible to the Bazel test's runfiles.
 
 Validate with the full JSON Schema engine and the exact released files:
 
 ```text
-python3 <reviewed-v5.1.0-checkout>/scripts/manifest-schema-validate.py \
-  <reviewed-v5.1.0-checkout>/schemas/lanes.schema.json .github/lanes.json
+python3 <reviewed-v5.1.1-checkout>/scripts/manifest-schema-validate.py \
+  <reviewed-v5.1.1-checkout>/schemas/lanes.schema.json .github/lanes.json
 ```
 
-Use commit `32e39ced0008edf4564ebeb173a5e8fbf069e28f` and Python with
+Use commit `ae836d8400d5784d74af4fecc020f225d1c2d08e` and Python with
 `jsonschema`; the explicit schema path matters because `--schemas-dir` routes
 repository-manifest versions, not this action plan. Released schema SHA-256:
 `4fef58645b8cd367a4336a66eaee629388c8a949a06d85becc97cfc1be82e3b8`.
 Released validator SHA-256:
 `759f343aadf815a665b6c8319fbc92015a21ea4cf647b1e549f50d3c12b22468`.
+Both released files have the same bytes as the previously reviewed schema and
+validator. That static hash comparison is not a fresh validation of the changed
+plan or an execution receipt.
 
 GF also needs the actual source-bound `MODULE.bazel.lock`. This repository pins
-Bazel 8.1.1; use its managed launcher for dependency-only `mod deps`, then replay
-with `--lockfile_mode=error`. Do not invent lock bytes, copy another package's
+Bazel 8.1.1; the integration lane coordinates real lock generation and strict
+replay. This source-only pass authorizes no local Bazel/test/build/Nix execution.
+Do not invent lock bytes, copy another package's
 lock, weaken transport trust or claim dependency resolution as remote execution.
 The preparation outcome below must distinguish generated source data from
 target execution and provider qualification.
@@ -82,9 +101,11 @@ cache-hit evidence with measurement attribution; runner pickup and a green
 Actions badge alone do not qualify execution. No local/hosted/cache-endpoint
 fallback or caller-built binding substitutes for missing authority.
 
-Publication requires separate artifact qualification, original package gates,
-immutable version, BCR registration and explicit release authority. This inert
-preparation does not publish or change application/runtime authority.
+BCR delivery requires exact-source test/build/artifact and external consumer
+qualification, an immutable source tag/release and append-only registry entry
+with the source archive digest. npmjs/GitHub Packages publication or occupancy
+is not a gate. This inert preparation introduces no provider publisher and does
+not release or change application/runtime authority.
 
 ## Preparation outcome
 

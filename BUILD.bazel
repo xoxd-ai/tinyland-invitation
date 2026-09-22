@@ -6,10 +6,11 @@ Dual-mode build: works with both pnpm (standalone) and Bazel (CI/production).
   Monorepo:   bazel build //packages/tinyland-invitation/...
 """
 
+load("@aspect_rules_js//js:defs.bzl", "js_test")
 load("@aspect_rules_js//npm:defs.bzl", "npm_package")
 load("@aspect_rules_ts//ts:defs.bzl", "ts_project")
-load("@npm//:defs.bzl", "npm_link_all_packages")
-load("@npm//:vitest/package_json.bzl", vitest_bin = "bin")
+load("@tummycrypt_tinyland_invitation_npm//:defs.bzl", "npm_link_all_packages")
+load("@tummycrypt_tinyland_invitation_npm//:vitest/package_json.bzl", vitest_bin = "bin")
 
 npm_link_all_packages(name = "node_modules")
 
@@ -46,6 +47,7 @@ npm_package(
     ],
     package = "@tummycrypt/tinyland-invitation",
     version = "0.2.6",
+    publishable = False,
     visibility = ["//visibility:public"],
 )
 
@@ -58,6 +60,7 @@ vitest_bin.vitest_test(
         "MODULE.bazel",
         "docs/gf-v4-qualification.candidate.yml",
         "package.json",
+        "scripts/check-package-artifact.mjs",
         "tsconfig.json",
         ":node_modules/vitest",
         "vitest.config.ts",
@@ -69,6 +72,20 @@ vitest_bin.vitest_test(
         "$(rootpath vitest.config.ts)",
     ],
     log_level = "info",
+    visibility = ["//visibility:public"],
+)
+
+# Validate the actual assembled package; do not repack through npm/pnpm.
+js_test(
+    name = "package_artifact_test",
+    entry_point = "scripts/check-package-artifact.mjs",
+    args = ["$(rootpath :pkg)"],
+    data = [
+        ":pkg",
+        ":node_modules/publint",
+        "package.json",
+        "scripts/check-package-artifact.mjs",
+    ],
     visibility = ["//visibility:public"],
 )
 

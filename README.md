@@ -9,6 +9,13 @@ the 0.2.5 API for the existing-admin, single-writer mothership. Its source/versi
 preparation does not release the held invitation 0.3/auth 0.8 breaking train or
 authorize publication, workflow activation or deployment.
 
+Under corrected TIN-89/TIN-1629 authority, Bzlmod and the append-only Tinyland BCR
+are the sole first-party delivery path. GitHub tags/releases identify source;
+npmjs and GitHub Packages are neither delivery lanes nor release blockers. The
+legacy CI/publish workflows and package publishing configuration are retired.
+The GF action plan and caller candidate remain inert pending the current
+released/admitted binding; no active workflow or remote qualification is claimed.
+
 ## Durable file-native acceptance
 
 Opt in with `InvitationConfig.durableAcceptance`:
@@ -85,5 +92,10 @@ finish recovery with a compatible implementation first.
 `//:test` includes the recovery tests through the existing Bazel glob. They cover
 commit/projection interruptions, lost acknowledgements, stable receipts, concurrent
 handle claims, retained tombstones, corrupt/missing authority and creator/expiry
-rechecks. Local `pnpm exec tsc --noEmit` and `pnpm exec vitest run` are compatibility
-diagnostics; release qualification requires the canonical remote package workflow.
+rechecks. Source version/namespace and publication-retirement contracts also stay
+inside `//:test`; `//:pkg` depends on the TypeScript compilation target.
+`//:package_artifact_test` checks the actual generated package's manifest and
+declared files with locked `publint`, without repacking or importing its runtime.
+Release qualification requires exact-source remote GF-backed Bazel evidence and an
+external BCR consumer proof. Local diagnostics are not that evidence and are not
+authorized in this source-preparation pass.
