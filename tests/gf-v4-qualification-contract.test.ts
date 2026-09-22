@@ -73,6 +73,8 @@ jobs:
     const build = await readText('BUILD.bazel');
     expect(build).toContain('".github/workflows/*.yml"');
     expect(build).toContain('".github/workflows/*.yaml"');
+    // Keep any reintroduced workflows visible in runfiles, but permit the retired inventory.
+    expect(build).toMatch(/glob\(\s*\["\.github\/workflows\/\*\.yml", "\.github\/workflows\/\*\.yaml"\],\s*allow_empty = True,?\s*\)/);
   });
 
   it('retains graph-registered runtime and metadata checks after provider retirement', async () => {
