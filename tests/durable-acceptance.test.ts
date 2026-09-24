@@ -375,6 +375,47 @@ describe('durable invitation acceptance', () => {
     expect(await users()).toEqual([{ id: 'stable-user-1', handle: 'existing' }]);
   });
 
+  it.each(['new-author', 'NEW-AUTHOR', ' new-author '])(
+    'reserves a retained username alias %j before any acceptance commit', async (username) => {
+      const existing = [{
+        id: 'retained-user', handle: 'old-handle', username, isActive: false,
+        removedAt: new Date().toISOString(), removedBy: 'operator',
+      }];
+      await writeFile(config.adminUsersFilePath, JSON.stringify(existing));
+      const invitationBefore = await readFile(config.invitesFilePath, 'utf8');
+
+      expect(await service.acceptInvitation(data)).toEqual({ success: false, error: 'Handle already taken' });
+      expect(await users()).toEqual(existing);
+      expect(await readFile(config.invitesFilePath, 'utf8')).toBe(invitationBefore);
+      await expect(journal()).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(config.hashPassword).not.toHaveBeenCalled();
+    },
+  );
+
+  it('denies an active username-alias collision that would make app login ambiguous', async () => {
+    const existing = [{ id: 'active-user', handle: 'primary-handle', username: data.handle, isActive: true }];
+    await writeFile(config.adminUsersFilePath, JSON.stringify(existing));
+
+    expect(await service.acceptInvitation(data)).toEqual({ success: false, error: 'Handle already taken' });
+    expect(await users()).toEqual(existing);
+    await expect(journal()).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(config.hashPassword).not.toHaveBeenCalled();
+  });
+
+  it('does not replay a committed user over an alias claimed before recovery', async () => {
+    failProjection = 'user';
+    expect((await service.acceptInvitation(data)).success).toBe(false);
+    expect((await journal()).operations[0].state).toBe('committed');
+    const conflicting = [{ id: 'other-user', handle: 'other-handle', username: data.handle }];
+    await writeFile(config.adminUsersFilePath, JSON.stringify(conflicting));
+    failProjection = undefined;
+
+    await expect(new InvitationService().recoverPendingAcceptances())
+      .rejects.toThrow('Committed invitation handle is already reserved');
+    expect(await users()).toEqual(conflicting);
+    expect((await journal()).operations[0].state).toBe('committed');
+  });
+
   it('does not undo a committed account when the audit sink fails', async () => {
     vi.mocked(config.auditLog).mockRejectedValue(new Error('audit sink offline'));
     expect((await service.acceptInvitation(data)).success).toBe(true);

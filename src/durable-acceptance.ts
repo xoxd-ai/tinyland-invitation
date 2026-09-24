@@ -31,6 +31,16 @@ function normalizedHandle(handle: string): string {
   return handle.trim().toLowerCase();
 }
 
+function userReservesHandle(user: AdminUser, handle: string): boolean {
+  // Login resolves both the canonical handle and the retained username alias.
+  // Reserve either identity, including inactive/tombstoned accounts. The
+  // normalized comparison is conservative for legacy case/spacing variants;
+  // it never treats an alias as available merely because login's current
+  // equality check would not match that variant verbatim.
+  return normalizedHandle(user.handle) === handle
+    || (typeof user.username === 'string' && normalizedHandle(user.username) === handle);
+}
+
 function liveUser(user: AdminUser): boolean {
   return user.isActive === true && !('removedAt' in user) && !('removedBy' in user)
     && !('deletedAt' in user) && !('tombstonedAt' in user) && !user.isRemoved;
@@ -163,7 +173,7 @@ export class DurableInvitationAcceptance {
   private handleReserved(handle: string, users: AdminUser[], journal: AcceptanceJournal): boolean {
     // Retained/removed users count. Applied receipts also reserve a handle if an
     // external cleanup incorrectly removes the user's tombstone from its file.
-    return users.some((user) => normalizedHandle(user.handle) === handle)
+    return users.some((user) => userReservesHandle(user, handle))
       || journal.operations.some((entry) => entry.receipt.handle === handle);
   }
 
@@ -220,7 +230,7 @@ export class DurableInvitationAcceptance {
       // snapshot over an existing user, including removed/tombstoned users.
       return;
     }
-    if (users.some((candidate) => normalizedHandle(candidate.handle) === receipt.handle)) {
+    if (users.some((candidate) => userReservesHandle(candidate, receipt.handle))) {
       throw new Error('Committed invitation handle is already reserved');
     }
     users.push(user);
