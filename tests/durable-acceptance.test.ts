@@ -389,4 +389,28 @@ describe('durable invitation acceptance', () => {
     await other.revokeInvitation(data.token, 'operator');
     expect((await invitations()).map((entry) => entry.id)).toEqual([created.invitation!.id]);
   });
+
+  it('does not persist a QR preparation failure and retains a disclosed invite after audit failure', async () => {
+    const original = await readFile(config.invitesFilePath, 'utf8');
+    config.generateQrCode = vi.fn().mockRejectedValueOnce(new Error('QR unavailable')).mockResolvedValue('qr');
+    const options = { role: 'member', createdBy: 'operator', createdByHandle: 'operator' };
+
+    expect((await service.createInvitation(options)).success).toBe(false);
+    expect(await readFile(config.invitesFilePath, 'utf8')).toBe(original);
+    vi.mocked(config.auditLog).mockRejectedValueOnce(new Error('audit unavailable'));
+    const issued = await service.createInvitation(options);
+    expect(issued.success).toBe(true);
+    expect(issued.inviteUrl).toContain(issued.invitation!.token);
+    expect((await invitations()).map((entry) => entry.token)).toContain(issued.invitation!.token);
+    expect((await new InvitationService().getInvitation(issued.invitation!.token))?.id).toBe(issued.invitation!.id);
+  });
+
+  it('does not revive an expired durable invitation through extension', async () => {
+    await writeFile(config.invitesFilePath, JSON.stringify([invite({
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
+    })]));
+    vi.mocked(config.writeFile).mockClear();
+    expect(await service.extendInvitation(data.token, 48)).toBe(false);
+    expect(config.writeFile).not.toHaveBeenCalled();
+  });
 });

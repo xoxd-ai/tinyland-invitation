@@ -24,6 +24,12 @@ import type {
 
 const acceptanceLocks = new Map<string, Promise<void>>();
 const failedAcceptanceClaims = new Set<string>();
+// Bounds each issuance or extension request, not the cumulative invite lifetime.
+const MAX_INVITATION_HOURS = 168;
+
+function validDuration(hours: number): boolean {
+  return Number.isFinite(hours) && hours > 0 && hours <= MAX_INVITATION_HOURS;
+}
 
 // This serializes a token across every InvitationService instance in one Node
 // process. It is deliberately not presented as cross-process or cross-replica
@@ -173,6 +179,11 @@ export class InvitationService {
 
     try {
 
+      const expiresInHours = options.expiresInHours ?? config.authConfig.invitation.defaultExpiryHours;
+      if (!validDuration(expiresInHours)) {
+        return { success: false, error: 'Invalid invitation expiry' };
+      }
+
       const token = crypto.randomBytes(32).toString('hex');
       const id = config.generateId();
 
@@ -180,9 +191,7 @@ export class InvitationService {
       const totpSecret = config.generateTotpSecret();
 
       
-      const expiresInHours = options.expiresInHours ?? config.authConfig.invitation.defaultExpiryHours;
-      const expiresAt = new Date();
-      expiresAt.setHours(expiresAt.getHours() + expiresInHours);
+      const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
 
       
       const invitation: AdminInvite = {
@@ -198,10 +207,6 @@ export class InvitationService {
       };
 
       
-      this.invitations.set(token, invitation);
-      await this.saveInvitations();
-
-      
       const otpauth = config.generateKeyUri(
         options.handle || `invite-${id}`,
         'Tinyland.dev (Invite)',
@@ -212,13 +217,26 @@ export class InvitationService {
       
       const inviteUrl = `${config.publicUrl}/admin/accept-invite?token=${token}`;
 
+      // Finish fallible presentation work before the invitation becomes live.
+      this.invitations.set(token, invitation);
+      try {
+        await this.saveInvitations();
+      } catch (error) {
+        this.invitations.delete(token);
+        throw error;
+      }
+
       
-      await config.auditLog('INVITATION_CREATED', {
-        invitationId: id,
-        handle: options.handle,
-        role: options.role,
-        createdBy: options.createdBy,
-      });
+      try {
+        await config.auditLog('INVITATION_CREATED', {
+          invitationId: id,
+          handle: options.handle,
+          role: options.role,
+          createdBy: options.createdBy,
+        });
+      } catch {
+        console.error('Invitation created; audit delivery failed');
+      }
 
       return {
         success: true,
@@ -409,11 +427,15 @@ export class InvitationService {
     this.invitations.delete(token);
     await this.saveInvitations();
 
-    await config.auditLog('INVITATION_REVOKED', {
-      invitationId: invitation.id,
-      action: 'revoked',
-      revokedBy,
-    });
+    try {
+      await config.auditLog('INVITATION_REVOKED', {
+        invitationId: invitation.id,
+        action: 'revoked',
+        revokedBy,
+      });
+    } catch {
+      console.error('Invitation revoked; audit delivery failed');
+    }
 
     return true;
   }
@@ -426,11 +448,15 @@ export class InvitationService {
   private async extendInvitationUnlocked(token: string, additionalHours: number): Promise<boolean> {
     await this.ensureInitialized();
 
-    const invitation = this.invitations.get(token);
-    if (!invitation || invitation.usedAt) return false;
+    if (!validDuration(additionalHours)) return false;
 
-    const newExpiry = new Date(invitation.expiresAt);
-    newExpiry.setHours(newExpiry.getHours() + additionalHours);
+    const invitation = this.invitations.get(token);
+    if (!invitation || !invitation.isActive || invitation.usedAt) return false;
+
+    const previousExpiry = Date.parse(invitation.expiresAt);
+    if (!Number.isFinite(previousExpiry) || previousExpiry <= Date.now()) return false;
+    const newExpiry = new Date(previousExpiry + additionalHours * 60 * 60 * 1000);
+    if (!Number.isFinite(newExpiry.getTime())) return false;
     invitation.expiresAt = newExpiry.toISOString();
 
     await this.saveInvitations();
