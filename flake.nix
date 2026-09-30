@@ -8,7 +8,7 @@
     flake-utils.lib.eachDefaultSystem (system:
       let pkgs = nixpkgs.legacyPackages.${system}; in {
         devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [ bazel_8 nodejs_22 (if pkgs ? pnpm_10 then pkgs.pnpm_10 else pkgs.pnpm) ];
+          buildInputs = with pkgs; [ bazel_8 bazelisk nodejs_22 (if pkgs ? pnpm_10 then pkgs.pnpm_10 else pkgs.pnpm) ];
           shellHook = ''
             echo "tinyland-invitation dev shell"
             echo "  node $(node --version)"
