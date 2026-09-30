@@ -1,6 +1,6 @@
 {
   "name": "@tummycrypt/tinyland-invitation",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Admin invitation management with TOTP setup and audit logging",
   "type": "module",
   "license": "Zlib AND LicenseRef-Tinyland-Proprietary",
@@ -25,7 +25,6 @@
     "test:watch": "vitest",
     "test:coverage": "vitest --coverage",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "pnpm build && pnpm check:package",
     "check:package": "publint",
     "smoke:consumer": "node scripts/smoke-consumer.mjs"
   },
@@ -43,10 +42,6 @@
   },
   "engines": {
     "node": ">=22.0.0"
-  },
-  "publishConfig": {
-    "registry": "https://registry.npmjs.org/",
-    "access": "public"
   },
   "packageManager": "pnpm@10.13.1",
   "homepage": "https://github.com/tinyland-inc/tinyland-invitation",
