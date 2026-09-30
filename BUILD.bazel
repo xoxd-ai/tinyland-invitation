@@ -60,7 +60,7 @@ vitest_bin.vitest_test(
         "tsconfig.json",
         ":node_modules/vitest",
         "vitest.config.ts",
-    ] + glob([".github/workflows/*.yml", ".github/workflows/*.yaml"]) + glob(["src/**/*.ts"]) + glob(["tests/**/*.test.ts", "tests/**/*.ts"]),
+    ] + glob([".github/workflows/*.yml", ".github/workflows/*.yaml"], allow_empty = True) + glob(["src/**/*.ts"]) + glob(["tests/**/*.test.ts", "tests/**/*.ts"]),
     args = [
         "run",
         "--reporter=verbose",
