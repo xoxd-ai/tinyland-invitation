@@ -45,7 +45,8 @@ npm_package(
         ":tinyland_invitation",
     ],
     package = "@tummycrypt/tinyland-invitation",
-    version = "0.2.6",
+    version = "0.2.7",
+    publishable = False,
     visibility = ["//visibility:public"],
 )
 
@@ -59,7 +60,7 @@ vitest_bin.vitest_test(
         "tsconfig.json",
         ":node_modules/vitest",
         "vitest.config.ts",
-    ] + glob(["src/**/*.ts"]) + glob(["tests/**/*.test.ts", "tests/**/*.ts"]),
+    ] + glob([".github/workflows/*.yml", ".github/workflows/*.yaml"], allow_empty = True) + glob(["src/**/*.ts"]) + glob(["tests/**/*.test.ts", "tests/**/*.ts"]),
     args = [
         "run",
         "--reporter=verbose",
