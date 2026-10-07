@@ -77,7 +77,11 @@ export function useTestClock(clock: Clock): void {
   setInstalledClock(clock);
 }
 
-/** Return to the system clock. */
+/**
+ * Return to the system clock. Deliberately ungated: clearing can only restore
+ * the system clock, and afterEach hooks must be able to call it after a test
+ * has moved NODE_ENV away from "test".
+ */
 export function resetTestClock(): void {
   setInstalledClock(undefined);
 }

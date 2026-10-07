@@ -12,7 +12,20 @@ let installedClock;
 export function currentDate() {
     return installedClock ? new Date(installedClock.now()) : new Date();
 }
-/** Install or clear the process-wide clock. Called only from src/testing. */
+/**
+ * Install or clear the process-wide clock. Called only from src/testing.
+ *
+ * This module ships in dist (unexported), so a file-URL import could still
+ * reach it. Installing a clock is refused unless `process.env.NODE_ENV` is
+ * exactly "test", read live and never from a caller. Clearing is always
+ * allowed: it can only return the process to the system clock.
+ */
 export function setInstalledClock(clock) {
+    if (clock !== undefined) {
+        const nodeEnv = typeof process === 'object' && process?.env ? process.env.NODE_ENV : undefined;
+        if (nodeEnv !== 'test') {
+            throw new Error(`A test clock can only be installed when NODE_ENV is exactly "test" (it is ${nodeEnv === undefined ? 'unset' : JSON.stringify(nodeEnv)})`);
+        }
+    }
     installedClock = clock;
 }
