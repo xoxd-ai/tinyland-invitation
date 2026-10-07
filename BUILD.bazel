@@ -47,7 +47,7 @@ npm_package(
         ":tinyland_invitation",
     ],
     package = "@tummycrypt/tinyland-invitation",
-    version = "0.2.7",
+    version = "0.3.0",
     publishable = False,
     visibility = ["//visibility:public"],
 )
