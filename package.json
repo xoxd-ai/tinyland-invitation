@@ -19,12 +19,13 @@
   ],
   "scripts": {
     "build": "tsc",
+    "build:testing": "tsc -p tsconfig.testing.json",
     "dev": "tsc --watch",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist dist-testing",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest --coverage",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.testing.json",
     "check:package": "publint",
     "smoke:consumer": "node scripts/smoke-consumer.mjs"
   },

@@ -21,6 +21,8 @@ ts_project(
         exclude = [
             "src/**/*.test.ts",
             "src/**/*.spec.ts",
+            # RS5 pattern: the test harness never enters the production build.
+            "src/testing/**",
         ],
     ) + ["package.json"],
     declaration = True,
@@ -58,9 +60,11 @@ vitest_bin.vitest_test(
         "MODULE.bazel",
         "package.json",
         "tsconfig.json",
+        "tsconfig.testing.json",
+        ".gitignore",
         ":node_modules/vitest",
         "vitest.config.ts",
-    ] + glob([".github/workflows/*.yml", ".github/workflows/*.yaml"], allow_empty = True) + glob(["src/**/*.ts"]) + glob(["tests/**/*.test.ts", "tests/**/*.ts"]),
+    ] + glob([".github/workflows/*.yml", ".github/workflows/*.yaml"], allow_empty = True) + glob(["src/**/*.ts"]) + glob(["dist/**"]) + glob(["tests/**/*.test.ts", "tests/**/*.ts"]),
     args = [
         "run",
         "--reporter=verbose",
