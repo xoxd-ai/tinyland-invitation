@@ -1,12 +1,21 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as pkg from '../src/index.js';
 import { configure, resetConfig } from '../src/config.js';
 import { InvitationService } from '../src/service.js';
-import type { InvitationClock, InvitationConfig } from '../src/index.js';
+import type { InvitationConfig } from '../src/index.js';
+import {
+  TestingEntryRefusedError,
+  createManualClock,
+  resetTestClock,
+  useTestClock,
+} from '../src/testing/index.js';
 
-// RP2 harness seam: an optional clock on InvitationConfig. These tests pin the
-// default (system time, unchanged) and the injected behaviour.
+// RP2 harness seam. Since the RS5/RS6 rework there is no public clock option:
+// a test clock is installed only through the gated src/testing build. These
+// tests pin the default (system time, unchanged), that a clock smuggled through
+// the public config is ignored, and the test-clock behaviour.
 
-function buildConfig(clock?: InvitationClock): InvitationConfig {
+function buildConfig(extra: Record<string, unknown> = {}): InvitationConfig {
   const files = new Map<string, string>();
   let nextId = 0;
   return {
@@ -28,7 +37,7 @@ function buildConfig(clock?: InvitationClock): InvitationConfig {
     authConfig: { invitation: { defaultExpiryHours: 48 }, password: { bcryptRounds: 4 } },
     auditLog: async () => undefined,
     publicUrl: 'http://localhost.test',
-    ...(clock ? { clock } : {}),
+    ...(extra as object),
   };
 }
 
@@ -40,7 +49,24 @@ const createOptions = {
 } as const;
 
 describe('invitation clock seam', () => {
-  afterEach(() => resetConfig());
+  afterEach(() => {
+    resetTestClock();
+    resetConfig();
+    vi.unstubAllEnvs();
+  });
+
+  it('exposes no clock on the public entry point', () => {
+    expect(Object.keys(pkg).filter((name) => /clock|seam/i.test(name))).toEqual([]);
+  });
+
+  it('ignores a clock passed through the public config', async () => {
+    const frozen = Date.UTC(2001, 0, 1);
+    configure(buildConfig({ clock: { now: () => frozen } }));
+    const service = new InvitationService();
+    const before = Date.now();
+    const result = await service.createInvitation({ ...createOptions });
+    expect(Date.parse(result.invitation!.createdAt)).toBeGreaterThanOrEqual(before);
+  });
 
   it('uses the system clock when no clock is configured', async () => {
     configure(buildConfig());
@@ -59,22 +85,30 @@ describe('invitation clock seam', () => {
     expect(await service.getInvitation(result.invitation!.token)).not.toBeNull();
   });
 
-  it('stamps and expires invitations from an injected clock', async () => {
-    let nowMs = Date.UTC(2031, 0, 15, 12, 0, 0);
-    configure(buildConfig({ now: () => nowMs }));
+  it('stamps and expires invitations from a test clock', async () => {
+    const clock = createManualClock(Date.UTC(2031, 0, 15, 12, 0, 0));
+    useTestClock(clock);
+    configure(buildConfig());
     const service = new InvitationService();
 
     const result = await service.createInvitation({ ...createOptions });
     expect(result.success).toBe(true);
     const { token, createdAt } = result.invitation!;
-    expect(createdAt).toBe(new Date(nowMs).toISOString());
+    expect(createdAt).toBe(new Date(clock.now()).toISOString());
     expect(await service.getInvitation(token)).not.toBeNull();
 
-    nowMs += 47 * 3_600_000;
+    clock.advance(47 * 3_600_000);
     expect(await service.getInvitation(token)).not.toBeNull();
 
-    nowMs += 3 * 3_600_000;
+    clock.advance(3 * 3_600_000);
     expect(await service.getInvitation(token)).toBeNull();
     expect((await service.getStatistics()).pending).toBe(0);
+  });
+
+  it('refuses to install a test clock once NODE_ENV leaves "test"', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    expect(() => useTestClock(createManualClock(0))).toThrow(TestingEntryRefusedError);
+    vi.stubEnv('NODE_ENV', undefined);
+    expect(() => useTestClock(createManualClock(0))).toThrow(/NODE_ENV is unset/);
   });
 });

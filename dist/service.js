@@ -2,11 +2,7 @@ import crypto from 'crypto';
 import { getConfig } from './config.js';
 import { InvitationError } from './errors.js';
 import { defaultCanCreateInviteForRole } from './roles.js';
-// Reads the configured clock when one is supplied; otherwise the system clock.
-function currentDate() {
-    const clock = getConfig().clock;
-    return clock ? new Date(clock.now()) : new Date();
-}
+import { currentDate } from './seams.js';
 const acceptanceLocks = new Map();
 const failedAcceptanceClaims = new Set();
 // This serializes a token across every InvitationService instance in one Node

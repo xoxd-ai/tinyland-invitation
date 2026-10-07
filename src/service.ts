@@ -10,6 +10,7 @@ import crypto from 'crypto';
 import { getConfig } from './config.js';
 import { InvitationError } from './errors.js';
 import { defaultCanCreateInviteForRole } from './roles.js';
+import { currentDate } from './seams.js';
 import type {
   AdminInvite,
   AdminUser,
@@ -20,12 +21,6 @@ import type {
   AcceptResult,
   InvitationStatistics,
 } from './types.js';
-
-// Reads the configured clock when one is supplied; otherwise the system clock.
-function currentDate(): Date {
-  const clock = getConfig().clock;
-  return clock ? new Date(clock.now()) : new Date();
-}
 
 const acceptanceLocks = new Map<string, Promise<void>>();
 const failedAcceptanceClaims = new Set<string>();
