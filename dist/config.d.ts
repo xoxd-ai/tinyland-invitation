@@ -1,3 +1,7 @@
+/** Milliseconds-since-epoch time source. */
+export interface InvitationClock {
+    now(): number;
+}
 export interface InvitationConfig {
     readFile: (path: string) => Promise<string>;
     writeFile: (path: string, data: string) => Promise<void>;
@@ -18,6 +22,12 @@ export interface InvitationConfig {
     };
     auditLog: (eventType: string, data: Record<string, unknown>) => Promise<void>;
     publicUrl: string;
+    /**
+     * Time source for invitation timestamps and expiry checks. Optional; when
+     * omitted the service reads the system clock exactly as before. A test
+     * harness supplies one to exercise expiry without waiting.
+     */
+    clock?: InvitationClock;
     canCreateInviteForRole?: (args: {
         createdBy: string;
         createdByRole?: string;

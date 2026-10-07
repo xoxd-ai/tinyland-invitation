@@ -2,6 +2,11 @@ import crypto from 'crypto';
 import { getConfig } from './config.js';
 import { InvitationError } from './errors.js';
 import { defaultCanCreateInviteForRole } from './roles.js';
+// Reads the configured clock when one is supplied; otherwise the system clock.
+function currentDate() {
+    const clock = getConfig().clock;
+    return clock ? new Date(clock.now()) : new Date();
+}
 const acceptanceLocks = new Map();
 const failedAcceptanceClaims = new Set();
 // This serializes a token across every InvitationService instance in one Node
@@ -61,7 +66,7 @@ export class InvitationService {
         await config.writeFile(config.invitesFilePath, JSON.stringify(invitations, null, 2));
     }
     async cleanupExpired() {
-        const now = new Date();
+        const now = currentDate();
         let changed = false;
         for (const [token, invite] of this.invitations.entries()) {
             if (new Date(invite.expiresAt) < now || invite.usedAt) {
@@ -88,7 +93,7 @@ export class InvitationService {
             const id = config.generateId();
             const totpSecret = config.generateTotpSecret();
             const expiresInHours = options.expiresInHours ?? config.authConfig.invitation.defaultExpiryHours;
-            const expiresAt = new Date();
+            const expiresAt = currentDate();
             expiresAt.setHours(expiresAt.getHours() + expiresInHours);
             const invitation = {
                 id,
@@ -96,7 +101,7 @@ export class InvitationService {
                 role: options.role,
                 createdBy: options.createdBy,
                 createdByHandle: options.createdByHandle || options.createdBy,
-                createdAt: new Date().toISOString(),
+                createdAt: currentDate().toISOString(),
                 expiresAt: expiresAt.toISOString(),
                 temporaryTotpSecret: totpSecret,
                 isActive: true,
@@ -136,7 +141,7 @@ export class InvitationService {
         const invitation = this.invitations.get(token);
         if (!invitation)
             return null;
-        if (new Date(invitation.expiresAt) < new Date()) {
+        if (new Date(invitation.expiresAt) < currentDate()) {
             return null;
         }
         if (invitation.usedAt) {
@@ -176,7 +181,7 @@ export class InvitationService {
                 // audit failure leaves the token consumed instead of reopening a
                 // role-bearing capability. If persistence itself fails, retain a
                 // process-local deny marker for the remainder of this process.
-                invitation.usedAt = new Date().toISOString();
+                invitation.usedAt = currentDate().toISOString();
                 invitation.usedBy = userId;
                 try {
                     await this.saveInvitations();
@@ -199,8 +204,8 @@ export class InvitationService {
                     needsOnboarding: true,
                     onboardingStep: 0,
                     firstLogin: true,
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
+                    createdAt: currentDate().toISOString(),
+                    updatedAt: currentDate().toISOString(),
                 };
                 existingUsers.push(newUser);
                 await config.writeFile(config.adminUsersFilePath, JSON.stringify(existingUsers, null, 2));
@@ -235,7 +240,7 @@ export class InvitationService {
     }
     async listPendingInvitations() {
         await this.ensureInitialized();
-        const now = new Date();
+        const now = currentDate();
         return Array.from(this.invitations.values()).filter((invite) => new Date(invite.expiresAt) > now && !invite.usedAt);
     }
     async revokeInvitation(token, revokedBy) {
@@ -266,7 +271,7 @@ export class InvitationService {
     }
     async getStatistics() {
         await this.ensureInitialized();
-        const now = new Date();
+        const now = currentDate();
         const all = Array.from(this.invitations.values());
         return {
             total: all.length,

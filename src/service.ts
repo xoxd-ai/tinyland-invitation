@@ -21,6 +21,12 @@ import type {
   InvitationStatistics,
 } from './types.js';
 
+// Reads the configured clock when one is supplied; otherwise the system clock.
+function currentDate(): Date {
+  const clock = getConfig().clock;
+  return clock ? new Date(clock.now()) : new Date();
+}
+
 const acceptanceLocks = new Map<string, Promise<void>>();
 const failedAcceptanceClaims = new Set<string>();
 
@@ -98,7 +104,7 @@ export class InvitationService {
 
   
   private async cleanupExpired(): Promise<void> {
-    const now = new Date();
+    const now = currentDate();
     let changed = false;
 
     for (const [token, invite] of this.invitations.entries()) {
@@ -153,7 +159,7 @@ export class InvitationService {
 
       
       const expiresInHours = options.expiresInHours ?? config.authConfig.invitation.defaultExpiryHours;
-      const expiresAt = new Date();
+      const expiresAt = currentDate();
       expiresAt.setHours(expiresAt.getHours() + expiresInHours);
 
       
@@ -163,7 +169,7 @@ export class InvitationService {
         role: options.role,
         createdBy: options.createdBy,
         createdByHandle: options.createdByHandle || options.createdBy,
-        createdAt: new Date().toISOString(),
+        createdAt: currentDate().toISOString(),
         expiresAt: expiresAt.toISOString(),
         temporaryTotpSecret: totpSecret,
         isActive: true,
@@ -223,7 +229,7 @@ export class InvitationService {
     if (!invitation) return null;
 
     
-    if (new Date(invitation.expiresAt) < new Date()) {
+    if (new Date(invitation.expiresAt) < currentDate()) {
       return null;
     }
 
@@ -277,7 +283,7 @@ export class InvitationService {
         // audit failure leaves the token consumed instead of reopening a
         // role-bearing capability. If persistence itself fails, retain a
         // process-local deny marker for the remainder of this process.
-        invitation.usedAt = new Date().toISOString();
+        invitation.usedAt = currentDate().toISOString();
         invitation.usedBy = userId;
         try {
           await this.saveInvitations();
@@ -304,8 +310,8 @@ export class InvitationService {
           needsOnboarding: true,
           onboardingStep: 0,
           firstLogin: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          createdAt: currentDate().toISOString(),
+          updatedAt: currentDate().toISOString(),
         };
 
         existingUsers.push(newUser);
@@ -349,7 +355,7 @@ export class InvitationService {
   async listPendingInvitations(): Promise<AdminInvite[]> {
     await this.ensureInitialized();
 
-    const now = new Date();
+    const now = currentDate();
     return Array.from(this.invitations.values()).filter(
       (invite) => new Date(invite.expiresAt) > now && !invite.usedAt,
     );
@@ -394,7 +400,7 @@ export class InvitationService {
   async getStatistics(): Promise<InvitationStatistics> {
     await this.ensureInitialized();
 
-    const now = new Date();
+    const now = currentDate();
     const all = Array.from(this.invitations.values());
 
     return {
