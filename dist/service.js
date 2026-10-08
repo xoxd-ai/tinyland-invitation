@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { getConfig } from './config.js';
 import { InvitationError } from './errors.js';
 import { defaultCanCreateInviteForRole } from './roles.js';
-import { currentDate } from './seams.js';
+import { DurableInvitationAcceptance } from './durable-acceptance.js';
 const acceptanceLocks = new Map();
 const failedAcceptanceClaims = new Set();
 // This serializes a token across every InvitationService instance in one Node
@@ -32,6 +32,24 @@ async function withAcceptanceLock(key, operation) {
 export class InvitationService {
     invitations = new Map();
     initialized = false;
+    /** Run before protected auth reads as well as every auth mutation. */
+    async recoverPendingAcceptances() {
+        const config = getConfig();
+        if (config.durableAcceptance)
+            await new DurableInvitationAcceptance(config).recover();
+    }
+    async withDurableState(operation) {
+        const config = getConfig();
+        if (!config.durableAcceptance)
+            return operation();
+        return new DurableInvitationAcceptance(config).withReadyState(async () => {
+            // All file readers/writers participate in the same consumer-supplied gate.
+            // Durable receipts retain spent/expired tokens; do not run legacy cleanup.
+            await this.loadInvitations();
+            this.initialized = true;
+            return operation();
+        });
+    }
     async ensureInitialized() {
         if (this.initialized)
             return;
@@ -41,6 +59,11 @@ export class InvitationService {
     }
     async loadInvitations() {
         const config = getConfig();
+        if (config.durableAcceptance) {
+            const invitations = await new DurableInvitationAcceptance(config).readInvitations();
+            this.invitations = new Map(invitations.map((invite) => [invite.token, invite]));
+            return;
+        }
         try {
             const data = await config.readFile(config.invitesFilePath);
             const parsed = JSON.parse(data);
@@ -62,7 +85,7 @@ export class InvitationService {
         await config.writeFile(config.invitesFilePath, JSON.stringify(invitations, null, 2));
     }
     async cleanupExpired() {
-        const now = currentDate();
+        const now = new Date();
         let changed = false;
         for (const [token, invite] of this.invitations.entries()) {
             if (new Date(invite.expiresAt) < now || invite.usedAt) {
@@ -75,6 +98,9 @@ export class InvitationService {
         }
     }
     async createInvitation(options) {
+        return this.withDurableState(() => this.createInvitationUnlocked(options));
+    }
+    async createInvitationUnlocked(options) {
         await this.ensureInitialized();
         const config = getConfig();
         // Fail-closed authority gate (TIN-1607 R3). Throws InvitationError('forbidden')
@@ -89,7 +115,7 @@ export class InvitationService {
             const id = config.generateId();
             const totpSecret = config.generateTotpSecret();
             const expiresInHours = options.expiresInHours ?? config.authConfig.invitation.defaultExpiryHours;
-            const expiresAt = currentDate();
+            const expiresAt = new Date();
             expiresAt.setHours(expiresAt.getHours() + expiresInHours);
             const invitation = {
                 id,
@@ -97,7 +123,7 @@ export class InvitationService {
                 role: options.role,
                 createdBy: options.createdBy,
                 createdByHandle: options.createdByHandle || options.createdBy,
-                createdAt: currentDate().toISOString(),
+                createdAt: new Date().toISOString(),
                 expiresAt: expiresAt.toISOString(),
                 temporaryTotpSecret: totpSecret,
                 isActive: true,
@@ -130,14 +156,16 @@ export class InvitationService {
         }
     }
     async getInvitation(token) {
-        await this.ensureInitialized();
-        return this.getPendingInvitation(token);
+        return this.withDurableState(async () => {
+            await this.ensureInitialized();
+            return this.getPendingInvitation(token);
+        });
     }
     getPendingInvitation(token) {
         const invitation = this.invitations.get(token);
-        if (!invitation)
+        if (!invitation || !invitation.isActive)
             return null;
-        if (new Date(invitation.expiresAt) < currentDate()) {
+        if (new Date(invitation.expiresAt) < new Date()) {
             return null;
         }
         if (invitation.usedAt) {
@@ -147,6 +175,16 @@ export class InvitationService {
     }
     async acceptInvitation(data) {
         const config = getConfig();
+        if (config.durableAcceptance) {
+            try {
+                return await new DurableInvitationAcceptance(config).accept(data);
+            }
+            catch {
+                // Do not expose token/password/journal contents in an error sink.
+                console.error('Failed to accept invitation; durable recovery is required before auth decisions');
+                return { success: false, error: 'Failed to accept invitation' };
+            }
+        }
         const lockKey = `${config.invitesFilePath}\0${data.token}`;
         return withAcceptanceLock(lockKey, async () => {
             await this.ensureInitialized();
@@ -177,7 +215,7 @@ export class InvitationService {
                 // audit failure leaves the token consumed instead of reopening a
                 // role-bearing capability. If persistence itself fails, retain a
                 // process-local deny marker for the remainder of this process.
-                invitation.usedAt = currentDate().toISOString();
+                invitation.usedAt = new Date().toISOString();
                 invitation.usedBy = userId;
                 try {
                     await this.saveInvitations();
@@ -200,8 +238,8 @@ export class InvitationService {
                     needsOnboarding: true,
                     onboardingStep: 0,
                     firstLogin: true,
-                    createdAt: currentDate().toISOString(),
-                    updatedAt: currentDate().toISOString(),
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
                 };
                 existingUsers.push(newUser);
                 await config.writeFile(config.adminUsersFilePath, JSON.stringify(existingUsers, null, 2));
@@ -235,11 +273,16 @@ export class InvitationService {
         });
     }
     async listPendingInvitations() {
-        await this.ensureInitialized();
-        const now = currentDate();
-        return Array.from(this.invitations.values()).filter((invite) => new Date(invite.expiresAt) > now && !invite.usedAt);
+        return this.withDurableState(async () => {
+            await this.ensureInitialized();
+            const now = new Date();
+            return Array.from(this.invitations.values()).filter((invite) => invite.isActive && new Date(invite.expiresAt) > now && !invite.usedAt);
+        });
     }
     async revokeInvitation(token, revokedBy) {
+        return this.withDurableState(() => this.revokeInvitationUnlocked(token, revokedBy));
+    }
+    async revokeInvitationUnlocked(token, revokedBy) {
         await this.ensureInitialized();
         const config = getConfig();
         const invitation = this.invitations.get(token);
@@ -255,6 +298,9 @@ export class InvitationService {
         return true;
     }
     async extendInvitation(token, additionalHours) {
+        return this.withDurableState(() => this.extendInvitationUnlocked(token, additionalHours));
+    }
+    async extendInvitationUnlocked(token, additionalHours) {
         await this.ensureInitialized();
         const invitation = this.invitations.get(token);
         if (!invitation || invitation.usedAt)
@@ -266,8 +312,11 @@ export class InvitationService {
         return true;
     }
     async getStatistics() {
+        return this.withDurableState(() => this.getStatisticsUnlocked());
+    }
+    async getStatisticsUnlocked() {
         await this.ensureInitialized();
-        const now = currentDate();
+        const now = new Date();
         const all = Array.from(this.invitations.values());
         return {
             total: all.length,
