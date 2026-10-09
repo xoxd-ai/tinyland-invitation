@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { currentDate } from './seams.js';
 function missing(error) {
     return error?.code === 'ENOENT';
 }
@@ -9,6 +10,15 @@ function tokenHash(token) {
 }
 function normalizedHandle(handle) {
     return handle.trim().toLowerCase();
+}
+function userReservesHandle(user, handle) {
+    // Login resolves both the canonical handle and the retained username alias.
+    // Reserve either identity, including inactive/tombstoned accounts. The
+    // normalized comparison is conservative for legacy case/spacing variants;
+    // it never treats an alias as available merely because login's current
+    // equality check would not match that variant verbatim.
+    return normalizedHandle(user.handle) === handle
+        || (typeof user.username === 'string' && normalizedHandle(user.username) === handle);
 }
 function liveUser(user) {
     return user.isActive === true && !('removedAt' in user) && !('removedBy' in user)
@@ -94,7 +104,7 @@ export class DurableInvitationAcceptance {
             }
             const receipt = {
                 operationId: randomUUID(), invitationId: invitation.id, userId,
-                handle: data.handle, committedAt: new Date().toISOString(),
+                handle: data.handle, committedAt: currentDate().toISOString(),
             };
             const user = {
                 id: userId, username: data.handle, handle: data.handle, email: '', passwordHash,
@@ -135,12 +145,12 @@ export class DurableInvitationAcceptance {
     }
     pending(invitation) {
         return !!invitation && invitation.isActive === true && !invitation.usedAt
-            && validDate(invitation.expiresAt) && Date.parse(invitation.expiresAt) > Date.now();
+            && validDate(invitation.expiresAt) && Date.parse(invitation.expiresAt) > currentDate().getTime();
     }
     handleReserved(handle, users, journal) {
         // Retained/removed users count. Applied receipts also reserve a handle if an
         // external cleanup incorrectly removes the user's tombstone from its file.
-        return users.some((user) => normalizedHandle(user.handle) === handle)
+        return users.some((user) => userReservesHandle(user, handle))
             || journal.operations.some((entry) => entry.receipt.handle === handle);
     }
     async recoverUnlocked() {
@@ -197,7 +207,7 @@ export class DurableInvitationAcceptance {
             // snapshot over an existing user, including removed/tombstoned users.
             return;
         }
-        if (users.some((candidate) => normalizedHandle(candidate.handle) === receipt.handle)) {
+        if (users.some((candidate) => userReservesHandle(candidate, receipt.handle))) {
             throw new Error('Committed invitation handle is already reserved');
         }
         users.push(user);
