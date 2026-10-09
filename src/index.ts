@@ -6,7 +6,7 @@
 
 
 export { configure, getConfig, resetConfig } from './config.js';
-export type { InvitationConfig } from './config.js';
+export type { InvitationConfig, DurableInvitationAcceptanceConfig } from './config.js';
 
 export {
   InvitationService,
@@ -30,4 +30,5 @@ export type {
   InvitationResult,
   AcceptResult,
   InvitationStatistics,
+  InvitationAcceptanceReceipt,
 } from './types.js';

@@ -361,6 +361,19 @@ describe('tinyland-invitation', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('Failed to create invitation');
+      expect(mocks.writeFile).not.toHaveBeenCalled();
+      expect(mocks.auditLog).not.toHaveBeenCalled();
+    });
+
+    it('returns the committed invitation if audit delivery fails after the save', async () => {
+      mocks.auditLog.mockRejectedValueOnce(new Error('audit sink offline'));
+      const service = new InvitationService();
+      const result = await service.createInvitation(defaultCreateOptions);
+
+      expect(result.success).toBe(true);
+      expect(result.inviteUrl).toContain(result.invitation!.token);
+      expect(mocks.writeFile).toHaveBeenCalledOnce();
+      expect(await service.getInvitation(result.invitation!.token)).toEqual(result.invitation);
     });
 
     it('uses createdBy as createdByHandle when createdByHandle is empty', async () => {
@@ -373,20 +386,17 @@ describe('tinyland-invitation', () => {
       expect(result.invitation!.createdByHandle).toBe('admin-1');
     });
 
-    it('sets expiresInHours to 0 when explicitly passed as 0 (uses config default)', async () => {
+    it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, 169])
+    ('rejects unsupported expiry %s before minting or saving a token', async (expiresInHours) => {
       const service = new InvitationService();
       const result = await service.createInvitation({
         ...defaultCreateOptions,
-        expiresInHours: 0,
+        expiresInHours,
       });
 
-      
-      
-      const expiresAt = new Date(result.invitation!.expiresAt);
-      const now = new Date();
-      const hoursFromNow = (expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60);
-      
-      expect(hoursFromNow).toBeLessThan(1);
+      expect(result).toEqual({ success: false, error: 'Invalid invitation expiry' });
+      expect(mocks.generateId).not.toHaveBeenCalled();
+      expect(mocks.writeFile).not.toHaveBeenCalled();
     });
 
     it('generates unique tokens for multiple invitations', async () => {
@@ -1041,6 +1051,19 @@ describe('tinyland-invitation', () => {
       });
     });
 
+    it('reports a persisted revocation as successful even if audit delivery fails', async () => {
+      const invite = makeInvite({ token: 'revoked-without-audit' });
+      mocks.readFile.mockImplementation(async (path: string) => {
+        if (path === '/tmp/invites.json') return JSON.stringify([invite]);
+        throw new Error('not found');
+      });
+      mocks.auditLog.mockRejectedValueOnce(new Error('audit sink offline'));
+      const service = new InvitationService();
+
+      expect(await service.revokeInvitation(invite.token, 'admin-1')).toBe(true);
+      expect(mocks.writeFile).toHaveBeenCalledOnce();
+    });
+
     it('saves invitations after revocation', async () => {
       const invite = makeInvite({ token: 'to-revoke-save' });
       mocks.readFile.mockImplementation(async (path: string) => {
@@ -1075,6 +1098,17 @@ describe('tinyland-invitation', () => {
   
 
   describe('extendInvitation', () => {
+    it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, 169])
+    ('rejects unsupported extension %s without saving', async (hours) => {
+      const invite = makeInvite({ token: 'duration-check' });
+      mocks.readFile.mockImplementation(async (path: string) => {
+        if (path === '/tmp/invites.json') return JSON.stringify([invite]);
+        throw new Error('not found');
+      });
+      const service = new InvitationService();
+      expect(await service.extendInvitation(invite.token, hours)).toBe(false);
+      expect(mocks.writeFile).not.toHaveBeenCalled();
+    });
     it('extends the expiry of a valid invitation', async () => {
       const invite = makeInvite({ token: 'to-extend' });
       const originalExpiry = new Date(invite.expiresAt).getTime();
@@ -1141,6 +1175,7 @@ describe('tinyland-invitation', () => {
 
     it('can extend by fractional hours', async () => {
       const invite = makeInvite({ token: 'fractional' });
+      const originalExpiry = Date.parse(invite.expiresAt);
       mocks.readFile.mockImplementation(async (path: string) => {
         if (path === '/tmp/invites.json') return JSON.stringify([invite]);
         throw new Error('not found');
@@ -1149,6 +1184,8 @@ describe('tinyland-invitation', () => {
       const service = new InvitationService();
       const result = await service.extendInvitation('fractional', 0.5);
       expect(result).toBe(true);
+      const extended = await service.getInvitation('fractional');
+      expect(Date.parse(extended!.expiresAt) - originalExpiry).toBe(30 * 60 * 1000);
     });
   });
 
