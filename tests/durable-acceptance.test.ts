@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configure, InvitationService, resetConfig } from '../src/index.js';
 import type { AdminInvite, AdminUser, InvitationConfig } from '../src/index.js';
+import { createManualClock, resetTestClock, useTestClock } from '../src/testing/index.js';
 
 function mutationGate() {
   let previous = Promise.resolve();
@@ -358,15 +359,22 @@ describe('durable invitation acceptance', () => {
   );
 
   it('does not accept a token that expires during its final asynchronous authority check', async () => {
-    const now = Date.now();
-    let calls = 0;
-    config.durableAcceptance!.canAcceptInvitation = async () => {
-      if (++calls === 2) vi.spyOn(Date, 'now').mockReturnValue(now + 120_000);
-      return true;
-    };
-    expect((await service.acceptInvitation(data)).success).toBe(false);
-    await expect(journal()).rejects.toMatchObject({ code: 'ENOENT' });
-    expect(await users()).toHaveLength(0);
+    // The service reads time through the internal seam (new Date(), not
+    // Date.now()), so move the gated test clock rather than spying on Date.
+    const clock = createManualClock(Date.now());
+    useTestClock(clock);
+    try {
+      let calls = 0;
+      config.durableAcceptance!.canAcceptInvitation = async () => {
+        if (++calls === 2) clock.advance(120_000);
+        return true;
+      };
+      expect((await service.acceptInvitation(data)).success).toBe(false);
+      await expect(journal()).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(await users()).toHaveLength(0);
+    } finally {
+      resetTestClock();
+    }
   });
 
   it('refuses to overwrite an unrelated user with a colliding generated ID', async () => {
