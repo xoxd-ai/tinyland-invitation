@@ -2,8 +2,10 @@
 BUILD.bazel for @tummycrypt/tinyland-invitation.
 
 Dual-mode build: works with both pnpm (standalone) and Bazel (CI/production).
-  Standalone: cd packages/tinyland-invitation && pnpm build
-  Monorepo:   bazel build //packages/tinyland-invitation/...
+  Standalone: pnpm build && pnpm test
+  Bazel:      CI (.github/workflows/ci.yml) builds //:pkg and //:test.
+              It does not run `bazel test`.
+              A local `bazel test //...` is local, non-qualifying.
 """
 
 load("@aspect_rules_js//js:defs.bzl", "js_test")

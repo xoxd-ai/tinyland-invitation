@@ -33,7 +33,11 @@ use_repo(npm, "npm")
 `);
 writeFileSync(join(workspace, 'BUILD.bazel'), 'exports_files(["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"])\n');
 for (const args of [['mod', 'graph'], ['build', '@tummycrypt_tinyland_invitation//:pkg']]) {
-  const result = spawnSync('bazelisk', args, { cwd: workspace, stdio: 'inherit' });
+  // The consumer workspace has no .bazelrc, so bound its server here.
+  const result = spawnSync('bazelisk', ['--max_idle_secs=120', ...args], {
+    cwd: workspace,
+    stdio: 'inherit',
+  });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
